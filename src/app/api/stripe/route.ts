@@ -17,9 +17,11 @@ type RequestData = {
   hotelRoomSlug: string;
 };
 
-export async function POST(req: Request, res: Response) {
+export async function POST(req: Request) {
   try {
     // Parse request body
+    const data: RequestData = await req.json();
+
     const {
       checkinDate,
       checkoutDate,
@@ -27,7 +29,7 @@ export async function POST(req: Request, res: Response) {
       children,
       hotelRoomSlug,
       numberOfDays,
-    }: RequestData = await req.json();
+    } = data;
 
     // Validate request data
     if (!checkinDate || !checkoutDate || !adults || !hotelRoomSlug || !numberOfDays) {
@@ -41,7 +43,7 @@ export async function POST(req: Request, res: Response) {
 
     // Get user session
     const session = await getServerSession(authOptions);
-    if (!session) {
+    if (!session || !session.user) {
       return new NextResponse('Authentication required', { status: 401 });
     }
 
