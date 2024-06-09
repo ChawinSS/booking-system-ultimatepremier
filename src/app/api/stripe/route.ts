@@ -4,6 +4,17 @@ import { getServerSession } from 'next-auth';
 import { NextResponse } from 'next/server';
 import { getRoom } from '@/libs/apis';
 
+type User = {
+  id: string;
+  name?: string | null;
+  email?: string | null;
+  image?: string | null;
+};
+
+type Session = {
+  user?: User;
+};
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: '2023-08-16' as any,
 });
@@ -19,8 +30,9 @@ type RequestData = {
 
 export async function POST(req: Request) {
   try {
-    // Parse request body
+    console.log('Parsing request body...');
     const data: RequestData = await req.json();
+    console.log('Request data:', data);
 
     const {
       checkinDate,
@@ -33,17 +45,22 @@ export async function POST(req: Request) {
 
     // Validate request data
     if (!checkinDate || !checkoutDate || !adults || !hotelRoomSlug || !numberOfDays) {
+      console.error('Missing required fields');
       return new NextResponse('All fields are required', { status: 400 });
     }
 
     const origin = req.headers.get('origin');
     if (!origin) {
+      console.error('Origin header is missing');
       return new NextResponse('Origin header is missing', { status: 400 });
     }
 
     // Get user session
-    const session = await getServerSession(authOptions);
-    if (!session || !session.user) {
+    console.log('Getting user session...');
+    const session: Session | null = await getServerSession(authOptions);
+    console.log('Session:', session);
+    if (!session || !session.user || !session.user.id) {
+      console.error('Authentication required');
       return new NextResponse('Authentication required', { status: 401 });
     }
 
@@ -52,15 +69,21 @@ export async function POST(req: Request) {
     const formattedCheckinDate = checkinDate.split('T')[0];
 
     // Get room details
+    console.log('Getting room details...');
     const room = await getRoom(hotelRoomSlug);
     if (!room) {
+      console.error('Room not found');
       return new NextResponse('Room not found', { status: 404 });
     }
 
     const discountPrice = room.price - (room.price / 100) * room.discount;
     const totalPrice = discountPrice * numberOfDays;
 
+    // Encode image URLs
+    const encodedImages = room.images.map((image) => encodeURI(image.url));
+
     // Create Stripe payment session
+    console.log('Creating Stripe payment session...');
     const stripeSession = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: [
@@ -70,7 +93,7 @@ export async function POST(req: Request) {
             currency: 'usd',
             product_data: {
               name: room.name,
-              images: room.images.map((image) => image.url),
+              images: encodedImages,
             },
             unit_amount: parseInt((totalPrice * 100).toFixed(0)),
           },
@@ -91,6 +114,8 @@ export async function POST(req: Request) {
         totalPrice: totalPrice.toFixed(2), // Store total price as a string
       },
     });
+
+    console.log('Stripe session created:', stripeSession);
 
     return NextResponse.json(stripeSession, {
       status: 200,
